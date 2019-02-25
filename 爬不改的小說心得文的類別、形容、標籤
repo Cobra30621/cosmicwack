@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Feb  9 16:08:54 2019
+
+@author: cobra
+"""
+#程式目的：爬小說心得文的類別、形容、標籤
+
+import requests #引入函式庫
+from bs4 import BeautifulSoup
+import re
+import json
+import feedparser
+from docx import Document
+
+'''爬蟲部分'''
+#建立類別、形容、標籤串列
+sortList = []
+discribeList = []
+labelList = []
+
+#爬標籤時，利用文字顏色爬，但在有幾篇顏色改變
+differentColor = [200, 211, 241, 264, 271, 281, 300, 332]
+
+#新增類別與形容
+def AddSortDiscribe(series):
+
+    if series[0] in sortList:
+        loc = sortList.index(series[0])
+        if series[1] not in discribeList[loc]:
+            discribeList[loc].append(series[1])
+    else:
+        sortList.append(series[0])
+        discribeList.append([series[1]])
+
+#爬輕小說短心得目錄
+catalogUrl = 'https://m.gamer.com.tw/home/creationDetail.php?sn=3837535'
+catalogResp = requests.get(catalogUrl)
+catalogSoup = BeautifulSoup(catalogResp.text, 'html.parser')
+catalogAtags = catalogSoup.select('table')
+
+linkList = catalogAtags[0].find_all('tr')
+
+#第91到170篇心得爬文
+for text in range(90, 170):
+    
+    #轉址連結，不知為何無法爬
+    tranferUrl =  linkList[text].select('a')[0]['href'] 
+    
+    #一般連結
+    url = 'https://home.gamer.com.tw/creationDetail.php?sn=' + tranferUrl[len(tranferUrl)- 7:]
+    resp = requests.get(url)
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    atags = soup.select('table')
+    seriesList = atags[2].find_all('tr')
+        
+    for series in range(len(seriesList)):
+        if seriesList[series].text.replace('\n', '')[:3] != '總評：':
+            needSeries = seriesList[series].text.replace('\n', '').split('：')
+            AddSortDiscribe(needSeries)
+        else:
+            break
+        
+    #新增標籤
+    labels = atags[1].find('font', {'color':'#3366ff'}).text.split('、')        
+    for label in labels:
+        if label not in labelList:
+            labelList.append(label)
+
+#第171到347篇心得爬文
+for text in range(170, 347):
+    
+    #轉址連結，不知為何無法爬
+    tranferUrl =  linkList[text].select('a')[0]['href'] 
+    
+    #一般連結
+    url = 'https://home.gamer.com.tw/creationDetail.php?sn=' + tranferUrl[len(tranferUrl)- 7:]
+    resp = requests.get(url)
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    atags = soup.select('table')    
+    
+    seriesList = atags[2].find_all('tr')
+    
+    #新增類別與形容
+    for series in range(len(seriesList)):
+        if seriesList[series].text.replace('\n', '')[:3] != '禁止食':
+            
+            needSeries = seriesList[series].text.replace('\n', '').replace('☑', '')
+            needSeries = needSeries.replace('☐', '').split('：')
+            AddSortDiscribe(needSeries)
+        else:
+            break
+
+    #新增標籤，利用文字顏色爬，但在178篇後顏色改變
+    if text <177 or text in differentColor:
+        labels = atags[1].find('font', {'color':'#3366ff'}).text.split('、')        
+        for label in labels:
+            if label not in labelList:
+                labelList.append(label)
+    else:
+        labels = atags[1].find('font', {'color':'#3366FF'}).text.split('、')        
+        for label in labels:
+            if label not in labelList:
+                labelList.append(label)
+
+
+'''將資料存進word檔'''
+#建立檔案
+doc = Document()
+doc.add_heading('不改心得文的類別、形容、標籤')
+
+#建立類別、形容
+doc.add_heading('類別、形容')
+
+#計算形容類中，超過5個元素的個數
+rowCount = 0
+for i in discribeList:
+    if len(i) < 6:
+        rowCount += 1
+table = doc.add_table(rows=rowCount, cols=2)
+
+
+#將類別、形容寫入檔案
+tableCount = 0
+for sort in range(len(sortList)):
+    if len(discribeList[sort]) < 6:
+        cell = table.rows[tableCount].cells
+        cell[0].text += sortList[sort]
+        text = ''
+        for discribe in range(len(discribeList[sort])):
+            text += discribeList[sort][discribe] + '  '            
+        cell[1].text += text
+        tableCount += 1
+        
+    else:
+        doc.add_heading(sortList[sort])
+        text = ''
+        for discribe in range(len(discribeList[sort])):
+            if discribe % 5 == 4: 
+                text += discribeList[sort][discribe] + '\n'
+            else:
+                text += discribeList[sort][discribe] + '    '
+                
+        doc.add_paragraph(text)
+
+#建立標籤清單
+text2 = ''
+text2Count = 0
+text3 = ''
+text3Count = 0
+text4 = ''
+text4Count = 0
+textOver5 = ''
+textOver5Count = 0
+
+#將標籤依字數分類
+for label in range(len(labelList)):
+    if len(labelList[label]) == 2:
+        text2 += format(labelList[label], '4')
+        if text2Count % 10 == 9:
+            text2 += '\n'
+        text2Count += 1
+        
+    elif len(labelList[label]) == 3:
+        text3 += format(labelList[label], '5')
+        if text3Count % 6 == 5:
+            text3 += '\n'
+        text3Count += 1
+        
+    elif len(labelList[label]) == 4:
+        text4 += format(labelList[label], '7')
+        if text4Count % 5 == 4:
+            text4 += '\n'
+        text4Count += 1        
+
+    else:
+        textOver5 += format(labelList[label], '10')
+        if textOver5Count % 4 == 3:
+            textOver5 += '\n'
+        textOver5Count += 1
+    
+#將標籤寫入檔案    
+doc.add_heading('標籤')
+textList = [text2, text3, text4, textOver5 ]
+for text in textList:
+    doc.add_paragraph(text)        
+  
+#儲存檔案
+doc.save('不改心得文的類別、形容、標籤.docx')
+
